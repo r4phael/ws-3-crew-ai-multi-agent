@@ -1,154 +1,127 @@
-# E-Commerce Analytics Backbone
+# Claude Code Skills — GitHub Copilot Compatible
 
-A purpose-built analytical data platform for a high-volume e-commerce company,
-replacing a monolithic PostgreSQL system that was never designed for analytics.
+Two Claude Code skills adapted to work with **GitHub Copilot** via `.github/copilot-instructions.md`.
 
-This repository contains the **source system** and a **synthetic data
-generator**: a transactional PostgreSQL database that mirrors the company's
-production shape, seeded with realistic data, plus a generator that produces
-continuous traffic and injects the exact failure modes the analytical pipeline
-must survive.
+Both skills emit their output into a single file that Copilot reads automatically on every suggestion. Section markers keep the two skills independent — running one never overwrites the other.
 
-The analytical pipeline (Dagster → dbt → DuckDB), the intelligence layer
-(FastAPI + MCP), and the autonomous monitoring system (CrewAI Sentinel) are
-built on top of this foundation. Full design:
-[docs/tech-spec-analytics-backbone-sentinel-engine.pdf](docs/tech-spec-analytics-backbone-sentinel-engine.pdf).
+---
 
-## Why this exists
+## Skills
 
-The business runs analytics directly against its transactional PostgreSQL
-database. Heavy analytical queries lock resources needed for order processing,
-schema changes in the application break downstream reporting, and engineers
-spend their time firefighting instead of building. This backbone separates
-transactional and analytical concerns — and proves the separation works by
-continuously stress-testing it with injected failures.
+### `task-spec` — Task-Spec v2.1 generator
 
-## The data model
+Generates atomic, vendor-portable, self-verifying task files (`tasks/T-*.md`) that any agent (Claude, Codex, Kimi, Copilot) can pick up and execute.
 
-A transactional e-commerce schema —
-[src/db/01_schema.sql](src/db/01_schema.sql):
+**What Copilot gets:** the full Task-Spec template, trigger phrases, zone explanations, severity guide, and validate/gate commands — so Copilot can generate valid `T-*.md` files when you ask.
 
-| Table | Grain | Notes |
-| --- | --- | --- |
-| `customers` | one row per customer | segment, location, signup time |
-| `products` | one row per SKU | category, unit price, cost |
-| `orders` | one row per order line | references customer + product, priced |
-| `payments` | one row per payment | references order, amount, method, status |
-| `injected_incidents` | one row per injected failure | ground-truth ledger for evals |
+**Emit Copilot instructions:**
+```bash
+TARGET_REPO=/path/to/your/project \
+  bash .claude/skills/task-spec/scripts/emit-copilot.sh
+```
 
-The seeded data is **clean and referentially correct** — correlated orders,
-prices consistent with the catalog, payments matching order totals, timestamps
-that respect causality. It is the healthy baseline. All anomalies come from the
-generator, on demand.
+**Validate and gate without Claude:**
+```bash
+bash .claude/skills/task-spec/scripts/validate-task-spec.sh tasks/T-*.md
+bash .claude/skills/task-spec/scripts/safe-to-delegate.sh --stamp tasks/T-*.md
+```
 
-## Quickstart
+**Dependencies:** `bash`, `python3`. No Claude subscription needed to run the scripts.
+
+---
+
+### `agents-kbs-tech-stack` — Tech-stack agent fleet scaffold
+
+Scaffolds a paired architect + developer + troubleshooter agent per technology, each grounded in a curated KB tree. Three universal closer agents (code-reviewer, code-simplifier, code-documenter) are wired into every domain.
+
+**What Copilot gets:** an agents table, a KB domains table with quick-reference links — so Copilot knows which agent context and conventions apply per domain.
+
+**Scaffold a tech (requires Claude Code):**
+```bash
+TARGET_REPO=/path/to/your/project \
+  bash .claude/skills/agents-kbs-tech-stack/scripts/scaffold.sh
+```
+
+**Emit Copilot instructions (no Claude needed):**
+```bash
+TARGET_REPO=/path/to/your/project \
+  bash .claude/skills/agents-kbs-tech-stack/scripts/emit-cross-tool.sh
+```
+
+Also emits `AGENTS.md` (cross-tool agent index) and `.cursor/rules/agents-kbs-tech-stack.mdc` (Cursor shim).
+
+**Dependencies:** `bash`, `python3`, `pyyaml`. No Claude subscription needed.
+
+---
+
+## Copilot integration
+
+After running the emit scripts, your repo will have:
+
+```
+.github/
+  copilot-instructions.md   ← Copilot reads this automatically
+AGENTS.md                   ← cross-tool agent index
+.cursor/
+  rules/
+    agents-kbs-tech-stack.mdc  ← Cursor shim
+```
+
+The `copilot-instructions.md` uses section markers so both skills coexist:
+
+```
+<!-- BEGIN:agents-kbs-tech-stack --> ... <!-- END:agents-kbs-tech-stack -->
+<!-- BEGIN:task-spec -->             ... <!-- END:task-spec -->
+```
+
+Re-running either emit script replaces only its own section.
+
+---
+
+## Using on a machine without Claude
+
+The bash scripts are self-contained (`bash` + `python3` + `pyyaml`). Copy the skill folder and run:
 
 ```bash
-make setup          # install Python deps with uv
-cp .env.example .env
-make up             # start PostgreSQL (schema auto-applied on first boot)
-make seed           # load the clean, correlated baseline
-make psql           # explore it
+# Copy to target machine (USB, email, internal repo)
+cp -r .claude/skills/task-spec /tmp/transfer/
+cp -r .claude/skills/agents-kbs-tech-stack /tmp/transfer/
+
+# On the target machine
+TARGET_REPO=/path/to/project bash /tmp/transfer/task-spec/scripts/emit-copilot.sh
+TARGET_REPO=/path/to/project bash /tmp/transfer/agents-kbs-tech-stack/scripts/emit-cross-tool.sh
 ```
 
-## The synthetic data generator
+No internet, no subscription, no Claude Code required.
 
-A permanent validation harness, not a demo script. It generates realistic
-traffic and injects deliberate failures so the downstream pipeline and the
-monitoring system can be proven against the chaos they will face in production.
+---
 
-```bash
-make failures                       # list every failure mode
-make traffic TRAFFIC=200            # insert normal orders
-make inject FAILURE=schema_drift    # inject one failure
-make reset-schema                   # revert schema drift (repeatable demos)
-make watch                          # stream traffic + random failures (Ctrl-C)
+## Folder layout
+
 ```
-
-### Failure modes
-
-`make failures` lists them in two groups. Every injection is also written to
-the `injected_incidents` ledger (see below).
-
-**Base-crew failures** — detect, diagnose, report. Each maps to the monitoring
-agent that catches it.
-
-| Failure | Effect | Detected by |
-| --- | --- | --- |
-| `schema_drift` | renames `orders.customer_id` → `user_id`, breaking downstream models | Log Analyst |
-| `negative_price` | order with a negative unit price and total | Data Profiler |
-| `missing_customer` | order with a `NULL` customer reference | Data Profiler |
-| `invalid_quantity` | order with a non-positive quantity | Data Profiler |
-| `duplicate_order` | exact-duplicate order row | Data Profiler |
-| `late_arrival` | order backdated 45 days (late-arriving data) | Data Profiler |
-| `volume_spike` | sudden burst of orders | Data Profiler |
-| `orphan_payment` | payment referencing a non-existent order | Data Profiler |
-
-**Feature-unlocking failures** — each is designed to *demand* a specific CrewAI
-capability. Read the failure, reason about what an agent would need to handle it
-well, then build that capability.
-
-| Failure | Effect | Unlocks |
-| --- | --- | --- |
-| `recurring_incident` | the same failure injected repeatedly | **Memory** — recognise a repeat offender instead of cold-starting |
-| `ambiguous_anomaly` | revenue drops via cancellations *and* a price cut | **Knowledge/RAG** — consult a runbook to disambiguate root causes |
-| `destructive_fix` | corrupts many rows; only a bulk overwrite fixes it | **Human-in-the-loop** — a destructive remediation must pause for approval |
-| `malformed_data` | garbage text in status fields | **Guardrails + `output_pydantic`** — force a typed, validated post-mortem |
-| `slow_source` | stalls the source database | **Tool reliability** — retries, timeouts, fallbacks |
-| `multi_failure_cascade` | several failures at once | **Flows + conditional routing** — route each failure to the right squad |
-
-The generator is **schema-drift aware**: traffic and every injector keep
-working whether the customer column is `customer_id` or `user_id`, so a running
-`watch` session never breaks itself. `make reset-schema` reverts the rename, so
-the headline schema-drift scenario can be replayed as many times as needed.
-
-### Incident ledger (ground truth)
-
-Every injection is recorded in the `injected_incidents` table — failure key,
-detail, the agent expected to detect it, and a timestamp. Because the generator
-*knows* what it injected, this ledger is the ground truth a CrewAI evaluation
-scores against: did the crew diagnose the failure that was actually injected?
-
-## Make targets
-
-```bash
-make help           # list everything
-
-# platform
-make up / down / restart / reset
-make seed / reseed
-make psql / logs / ps / lint
-
-# generator
-make traffic / inject / failures / watch / reset-schema
+.claude/
+  agents/
+    caw-architect.md          ← CAW triad architect agent
+    task-architect.md         ← Task-Spec judgment agent
+  skills/
+    task-spec/                ← Task-Spec v2.1 skill
+      scripts/
+        emit-copilot.sh       ← Copilot emit (new)
+        generate-task-spec.sh
+        validate-task-spec.sh
+        safe-to-delegate.sh
+        ...
+      templates/
+        copilot-instructions.md.tpl  ← Copilot template (new)
+        task-spec.md.tpl
+    agents-kbs-tech-stack/    ← Agent fleet scaffold skill
+      scripts/
+        emit-cross-tool.sh    ← updated: rich Copilot section + merge
+        scaffold.sh
+        ...
+      templates/
+        copilot-instructions.md.tpl  ← updated: agents + KB tables
+        architect.md.tpl
+        developer.md.tpl
+        ...
 ```
-
-Seed volume and generator behaviour are overridable:
-
-```bash
-make seed CUSTOMERS=2000 PRODUCTS=500 ORDERS=50000 SEED=7
-make inject FAILURE=negative_price
-make traffic TRAFFIC=1000
-```
-
-## Layout
-
-```text
-src/
-  db/
-    01_schema.sql       # DDL, auto-applied on container init
-    connection.py       # PostgreSQL access
-  seed/
-    factories.py        # clean Faker domain factories
-    seed.py             # baseline loader (CLI)
-  gen/
-    failures.py         # failure-mode registry
-    engine.py           # traffic generation + watch daemon
-    repository.py       # generator data access
-    cli.py              # generator command surface
-docs/                   # technical specification
-```
-
-## Stack
-
-PostgreSQL 17 · Python 3.12+ · psycopg 3 · Faker · uv · Docker Compose

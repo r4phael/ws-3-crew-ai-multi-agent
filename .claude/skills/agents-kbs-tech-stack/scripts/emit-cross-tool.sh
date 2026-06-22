@@ -163,20 +163,138 @@ CURSOR_MDC="${CURSOR_DIR}/agents-kbs-tech-stack.mdc"
 cp "${TEMPLATES}/cursor-rules.mdc.tpl" "${CURSOR_MDC}"
 echo "✓ wrote ${CURSOR_MDC}"
 
-# ─── Write Copilot instructions ─────────────────────────────────────────────
+# ─── Render Copilot section (agents table + KB table into template) ──────────
+COPILOT_SECTION="$(python3 - "${INDEX_PATH}" "${AGENTS_DIR}" "${TEMPLATES}/copilot-instructions.md.tpl" "${LAST_UPDATED}" <<'PYEOF'
+import sys
+import re
+from pathlib import Path
+
+try:
+    import yaml
+except ImportError:
+    print("ERROR: PyYAML required (pip install pyyaml)", file=sys.stderr)
+    sys.exit(2)
+
+index_path = Path(sys.argv[1])
+agents_dir = Path(sys.argv[2])
+tpl_path   = Path(sys.argv[3])
+last_updated = sys.argv[4]
+
+data = yaml.safe_load(index_path.read_text()) or {}
+project_name = data.get("project") or "<unnamed project>"
+domains      = data.get("domains") or {}
+
+# ─── Agents table ──────────────────────────────────────────────────────────
+agent_rows = []
+for md in sorted(agents_dir.glob("*.md")):
+    text = md.read_text()
+    name = md.stem
+    description = ""
+    role = "unknown"
+
+    fm_match = re.match(r"^---\s*\n(.*?)\n---\s*\n", text, re.DOTALL)
+    if fm_match:
+        try:
+            fm = yaml.safe_load(fm_match.group(1)) or {}
+            name = fm.get("name", name)
+            description = (fm.get("description") or "").strip().replace("\n", " ")
+            if description:
+                first = re.split(r"(?<=[.!?])\s+", description, maxsplit=1)[0]
+                description = first
+        except yaml.YAMLError:
+            pass
+
+    if name.endswith("-architect"):
+        role = "architect"
+    elif name.endswith("-developer"):
+        role = "developer"
+    elif name.endswith("-troubleshooter"):
+        role = "troubleshooter"
+    elif name in {"code-reviewer", "code-simplifier", "code-documenter"}:
+        role = "closer"
+
+    rel_path = md.relative_to(agents_dir.parent.parent).as_posix()
+    agent_rows.append((name, role, description, rel_path))
+
+if agent_rows:
+    lines = [
+        "| Agent | Role | Purpose | File |",
+        "|-------|------|---------|------|",
+    ]
+    for name, role, desc, path in agent_rows:
+        desc_safe = (desc or "").replace("|", "\\|")
+        lines.append(f"| `{name}` | {role} | {desc_safe} | [`{path}`]({path}) |")
+    agents_table = "\n".join(lines)
+else:
+    agents_table = "_(no agents scaffolded yet — run scaffold.sh first)_"
+
+# ─── KB table ──────────────────────────────────────────────────────────────
+if domains:
+    lines = [
+        "| Domain | Description | Quick reference |",
+        "|--------|-------------|-----------------|",
+    ]
+    for slug, block in domains.items():
+        d_name = block.get("name") or slug
+        d_desc = (block.get("description") or "").replace("|", "\\|")
+        path = block.get("path") or f"{slug}/"
+        qr_rel = (block.get("entry_points") or {}).get("quick_reference") or "quick-reference.md"
+        qr_link = f".claude/kb/{path.rstrip('/')}/{qr_rel}"
+        lines.append(f"| `{slug}` ({d_name}) | {d_desc} | [`{qr_link}`]({qr_link}) |")
+    kb_table = "\n".join(lines)
+else:
+    kb_table = "_(no domains registered yet — run scaffold.sh first)_"
+
+# ─── Render template ───────────────────────────────────────────────────────
+content = tpl_path.read_text()
+content = content.replace("{PROJECT_NAME}", project_name)
+content = content.replace("{AGENTS_TABLE}", agents_table)
+content = content.replace("{KB_TABLE}", kb_table)
+content = content.replace("{LAST_UPDATED}", last_updated)
+
+print(content)
+PYEOF
+)"
+
+# ─── Write Copilot instructions (merge section, preserve other skills) ───────
 GH_DIR="${TARGET_REPO}/.github"
 mkdir -p "${GH_DIR}"
 COPILOT_MD="${GH_DIR}/copilot-instructions.md"
-cp "${TEMPLATES}/copilot-instructions.md.tpl" "${COPILOT_MD}"
+
+python3 - "${COPILOT_MD}" "${COPILOT_SECTION}" <<'PYEOF'
+import sys
+import re
+from pathlib import Path
+
+path = Path(sys.argv[1])
+section = sys.argv[2]
+
+BEGIN = "<!-- BEGIN:agents-kbs-tech-stack -->"
+END   = "<!-- END:agents-kbs-tech-stack -->"
+
+text = path.read_text() if path.exists() else ""
+
+pattern = re.compile(re.escape(BEGIN) + r".*?" + re.escape(END), re.DOTALL)
+if pattern.search(text):
+    new_text = pattern.sub(section, text)
+else:
+    sep = "\n\n" if text.strip() else ""
+    new_text = text + sep + section + "\n"
+
+path.write_text(new_text)
+PYEOF
+
 echo "✓ wrote ${COPILOT_MD}"
 
 echo ""
 echo "────────────────────────────────────────────────────────────────────────"
-echo "Cross-tool index emitted (overwrote any prior versions):"
+echo "Cross-tool index emitted:"
 echo "  • ${AGENTS_MD}"
 echo "  • ${CURSOR_MDC}"
 echo "  • ${COPILOT_MD}"
 echo ""
 echo "Re-emit after adding/removing a tech, renaming the project, or"
 echo "bumping doctrine. These files are generated — do not hand-edit."
+echo "To also include Task-Spec instructions in Copilot, run:"
+echo "  TARGET_REPO=${TARGET_REPO} bash task-spec/scripts/emit-copilot.sh"
 echo "────────────────────────────────────────────────────────────────────────"
