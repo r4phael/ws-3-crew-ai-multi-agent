@@ -17,13 +17,13 @@ Generates atomic, vendor-portable, self-verifying task files (`tasks/T-*.md`) th
 **Emit Copilot instructions:**
 ```bash
 TARGET_REPO=/path/to/your/project \
-  bash .github/skills/task-spec/scripts/emit-copilot.sh
+  bash .claude/skills/task-spec/scripts/emit-copilot.sh
 ```
 
 **Validate and gate without Claude:**
 ```bash
-bash .github/skills/task-spec/scripts/validate-task-spec.sh tasks/T-*.md
-bash .github/skills/task-spec/scripts/safe-to-delegate.sh --stamp tasks/T-*.md
+bash .claude/skills/task-spec/scripts/validate-task-spec.sh tasks/T-*.md
+bash .claude/skills/task-spec/scripts/safe-to-delegate.sh --stamp tasks/T-*.md
 ```
 
 **Dependencies:** `bash`, `python3`. No Claude subscription needed to run the scripts.
@@ -39,13 +39,13 @@ Scaffolds a paired architect + developer + troubleshooter agent per technology, 
 **Scaffold a tech (requires Claude Code):**
 ```bash
 TARGET_REPO=/path/to/your/project \
-  bash .github/skills/agents-kbs-tech-stack/scripts/scaffold.sh
+  bash .claude/skills/agents-kbs-tech-stack/scripts/scaffold.sh
 ```
 
 **Emit Copilot instructions (no Claude needed):**
 ```bash
 TARGET_REPO=/path/to/your/project \
-  bash .github/skills/agents-kbs-tech-stack/scripts/emit-cross-tool.sh
+  bash .claude/skills/agents-kbs-tech-stack/scripts/emit-cross-tool.sh
 ```
 
 Also emits `AGENTS.md` (cross-tool agent index) and `.cursor/rules/agents-kbs-tech-stack.mdc` (Cursor shim).
@@ -84,8 +84,8 @@ The bash scripts are self-contained (`bash` + `python3` + `pyyaml`). Copy the sk
 
 ```bash
 # Copy to target machine (USB, email, internal repo)
-cp -r .github/skills/task-spec /tmp/transfer/
-cp -r .github/skills/agents-kbs-tech-stack /tmp/transfer/
+cp -r .claude/skills/task-spec /tmp/transfer/
+cp -r .claude/skills/agents-kbs-tech-stack /tmp/transfer/
 
 # On the target machine
 TARGET_REPO=/path/to/project bash /tmp/transfer/task-spec/scripts/emit-copilot.sh
@@ -99,28 +99,28 @@ No internet, no subscription, no Claude Code required.
 ## Folder layout
 
 ```
-.github/
+.claude/
   agents/
     caw-architect.md          ← CAW triad architect agent
     task-architect.md         ← Task-Spec judgment agent
   skills/
     task-spec/                ← Task-Spec v2.1 skill
       scripts/
-        emit-copilot.sh       ← Copilot emit
+        emit-copilot.sh       ← Copilot emit (new)
         generate-task-spec.sh
         validate-task-spec.sh
         safe-to-delegate.sh
         ...
       templates/
-        copilot-instructions.md.tpl
+        copilot-instructions.md.tpl  ← Copilot template (new)
         task-spec.md.tpl
     agents-kbs-tech-stack/    ← Agent fleet scaffold skill
       scripts/
-        emit-cross-tool.sh    ← emits Copilot section + AGENTS.md + Cursor
+        emit-cross-tool.sh    ← updated: rich Copilot section + merge
         scaffold.sh
         ...
       templates/
-        copilot-instructions.md.tpl
+        copilot-instructions.md.tpl  ← updated: agents + KB tables
         architect.md.tpl
         developer.md.tpl
         ...
